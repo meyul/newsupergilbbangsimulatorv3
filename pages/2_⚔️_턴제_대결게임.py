@@ -1,10 +1,12 @@
 import streamlit as st
 import random
+from style import load_css
 
 st.set_page_config(page_title="턴제 대결 게임", page_icon="⚔️")
+load_css()
 
-st.title("⚔️ 범죄자 턴제 대결 게임")
-st.markdown("범죄자를 상대로 턴제 전투를 펼쳐보세요!")
+st.markdown("<h1>⚔️ 범죄자 BATTLE</h1>", unsafe_allow_html=True)
+st.markdown("<p style='color:#a0a0d0;'>전략적인 턴제 전투로 범죄자를 제압하라!</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # 게임 상태 초기화
@@ -18,43 +20,53 @@ def init_game():
 if "player_hp" not in st.session_state:
     init_game()
 
-# 체력 표시
+# HP 바를 그려주는 함수 (네온 스타일)
+def hp_bar(label, hp, color, emoji):
+    pct = max(0, hp)
+    st.markdown(f"""
+    <div class='glass-card' style='padding:16px;'>
+        <h3 style='margin:0; color:{color} !important;'>{emoji} {label}</h3>
+        <div style='background:rgba(0,0,0,0.4); border-radius:10px; height:22px; margin-top:10px; overflow:hidden;'>
+            <div style='width:{pct}%; height:100%;
+                background:linear-gradient(90deg, {color}, #ffffff44);
+                box-shadow:0 0 12px {color}; border-radius:10px;
+                transition:width 0.4s ease;'></div>
+        </div>
+        <p style='text-align:right; color:#e0e0ff; margin:6px 0 0 0;'>HP {pct} / 100</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("🧑 나")
-    st.progress(max(0, st.session_state.player_hp) / 100)
-    st.write(f"HP: {max(0, st.session_state.player_hp)} / 100")
+    hp_bar("나", st.session_state.player_hp, "#00f0ff", "🧑")
 with col2:
-    st.subheader("🦹 범죄자")
-    st.progress(max(0, st.session_state.enemy_hp) / 100)
-    st.write(f"HP: {max(0, st.session_state.enemy_hp)} / 100")
+    hp_bar("범죄자", st.session_state.enemy_hp, "#ff2e5e", "🦹")
 
 st.markdown("---")
 
-# 적의 턴 처리 함수
+# 적 턴
 def enemy_turn():
     if st.session_state.enemy_hp <= 0:
         return
     enemy_dmg = random.randint(8, 18)
     if st.session_state.defending:
         enemy_dmg = enemy_dmg // 2
-        st.session_state.log.append(f"🛡️ 방어로 데미지를 절반으로 줄였습니다!")
+        st.session_state.log.append("🛡️ 방어 성공! 데미지 절반 감소!")
         st.session_state.defending = False
     st.session_state.player_hp -= enemy_dmg
-    st.session_state.log.append(f"🦹 범죄자의 공격! {enemy_dmg} 데미지를 입었습니다.")
+    st.session_state.log.append(f"🦹 범죄자의 공격! {enemy_dmg} 데미지를 입었다.")
 
-# 승패 체크
 def check_end():
     if st.session_state.enemy_hp <= 0:
-        st.session_state.log.append("🎉 범죄자를 물리쳤습니다! 승리!")
+        st.session_state.log.append("🎉 범죄자를 물리쳤다! 승리!")
         st.session_state.game_over = True
     elif st.session_state.player_hp <= 0:
-        st.session_state.log.append("💀 당신은 쓰러졌습니다... 패배!")
+        st.session_state.log.append("💀 당신은 쓰러졌다... 패배!")
         st.session_state.game_over = True
 
 # 행동 버튼
 if not st.session_state.game_over:
-    st.markdown("### ⚡ 행동을 선택하세요")
+    st.markdown("<h3>⚡ 행동 선택</h3>", unsafe_allow_html=True)
     b1, b2, b3 = st.columns(3)
 
     with b1:
@@ -71,43 +83,52 @@ if not st.session_state.game_over:
     with b2:
         if st.button("🛡️ 방어"):
             st.session_state.defending = True
-            st.session_state.log.append("🛡️ 방어 자세를 취합니다!")
+            st.session_state.log.append("🛡️ 방어 자세!")
             enemy_turn()
             check_end()
             st.rerun()
 
     with b3:
         if st.button("💥 강공격"):
-            # 강공격: 높은 데미지지만 빗나갈 확률 있음
             if random.random() < 0.6:
                 dmg = random.randint(20, 35)
                 st.session_state.enemy_hp -= dmg
                 st.session_state.log.append(f"💥 강공격 명중! {dmg} 데미지!")
             else:
-                st.session_state.log.append("💨 강공격이 빗나갔습니다!")
+                st.session_state.log.append("💨 강공격이 빗나갔다!")
             check_end()
             if not st.session_state.game_over:
                 enemy_turn()
                 check_end()
             st.rerun()
 else:
-    # 게임 종료 화면
     if st.session_state.enemy_hp <= 0:
-        st.success("🎉 승리했습니다! 범죄자를 물리쳤어요!")
+        st.markdown("""
+        <div class='glass-card' style='text-align:center; border-color:#00ff9d; box-shadow:0 0 30px #00ff9d44;'>
+            <h2 style='color:#00ff9d !important;'>🎉 VICTORY</h2>
+            <p style='color:#e0e0ff;'>범죄자를 물리쳤습니다!</p>
+        </div>
+        """, unsafe_allow_html=True)
         st.balloons()
     else:
-        st.error("💀 패배했습니다... 다시 도전하세요!")
+        st.markdown("""
+        <div class='glass-card' style='text-align:center; border-color:#ff2e5e; box-shadow:0 0 30px #ff2e5e44;'>
+            <h2 style='color:#ff2e5e !important;'>💀 GAME OVER</h2>
+            <p style='color:#e0e0ff;'>당신은 쓰러졌습니다...</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # 전투 로그
 st.markdown("---")
-st.markdown("### 📜 전투 로그")
-log_box = st.container()
-with log_box:
-    for line in reversed(st.session_state.log[-8:]):
-        st.write(line)
+st.markdown("<h3>📜 BATTLE LOG</h3>", unsafe_allow_html=True)
+log_html = "".join([
+    f"<p style='color:#b0b0e0; margin:4px 0; font-size:0.92em;'>▸ {line}</p>"
+    for line in reversed(st.session_state.log[-8:])
+])
+st.markdown(f"<div class='glass-card'>{log_html if log_html else '<p style=color:#808;>전투를 시작하세요!</p>'}</div>", unsafe_allow_html=True)
 
-# 재시작 버튼
+# 재시작
 st.markdown("---")
-if st.button("🔄 게임 다시 시작"):
+if st.button("🔄 다시 시작"):
     init_game()
     st.rerun()
