@@ -9,37 +9,70 @@ def load_css():
             color: #e0e0ff;
         }
 
-        /* ⭐ 모든 기본 텍스트 밝게 강제 지정 */
+        /* 기본 텍스트 밝게 */
         .stApp, .stApp p, .stApp span, .stApp label, .stApp div,
         .stMarkdown, [data-testid="stWidgetLabel"] p,
         [data-testid="stMarkdownContainer"] p {
             color: #e0e0ff;
         }
 
-        /* ⭐ 입력창 라벨 (슬라이더, 체크박스, 텍스트입력 등) */
         label, .stSlider label, .stSelectSlider label,
-        .stTextInput label, .stCheckbox label {
+        .stTextInput label, .stCheckbox label, .stRadio label,
+        .stSelectbox label {
             color: #e0e0ff !important;
         }
 
-        /* ⭐ 텍스트 입력칸 안쪽 글자 & 배경 */
-        .stTextInput input {
+        /* ⭐⭐ 텍스트 입력칸 - 어두운 배경 + 흰 글씨 ⭐⭐ */
+        .stTextInput input,
+        .stTextInput > div > div > input {
             color: #ffffff !important;
-            background-color: rgba(255,255,255,0.08) !important;
-            border: 1px solid #ff2e9a55 !important;
+            background-color: #1a1735 !important;
+            border: 1px solid #ff2e9a88 !important;
+            border-radius: 8px !important;
+            caret-color: #ff2e9a !important;
+        }
+        /* 입력칸 placeholder(연한 안내글자) */
+        .stTextInput input::placeholder {
+            color: #8888bb !important;
+        }
+        /* 입력칸 클릭(포커스) 했을 때 */
+        .stTextInput input:focus {
+            border: 1px solid #00f0ff !important;
+            box-shadow: 0 0 10px #00f0ff55 !important;
+        }
+
+        /* ⭐ 셀렉트박스(드롭다운) - 어두운 배경 + 흰 글씨 */
+        .stSelectbox > div > div {
+            background-color: #1a1735 !important;
+            border: 1px solid #ff2e9a88 !important;
             border-radius: 8px !important;
         }
+        .stSelectbox > div > div div {
+            color: #ffffff !important;
+        }
+        /* 드롭다운 펼쳤을 때 나오는 목록 */
+        [data-baseweb="popover"] li {
+            background-color: #1a1735 !important;
+            color: #ffffff !important;
+        }
+        [data-baseweb="popover"] li:hover {
+            background-color: #302b63 !important;
+        }
 
-        /* ⭐ 체크박스 글자 */
-        .stCheckbox p {
+        /* ⭐ 라디오 / 체크박스 글자 */
+        .stRadio p, .stCheckbox p {
             color: #e0e0ff !important;
         }
 
-        /* ⭐ 슬라이더 숫자/값 표시 */
+        /* ⭐ 슬라이더 숫자 표시 */
         .stSlider [data-testid="stTickBarMin"],
         .stSlider [data-testid="stTickBarMax"],
         .stSlider [data-baseweb="slider"] div {
             color: #e0e0ff !important;
+        }
+        /* 슬라이더 현재값 말풍선 */
+        .stSlider [data-testid="stThumbValue"] {
+            color: #00f0ff !important;
         }
 
         /* 폰트 */
@@ -72,7 +105,6 @@ def load_css():
         .stButton > button:hover {
             transform: translateY(-2px) scale(1.03);
             box-shadow: 0 0 25px #ff2e9a, 0 0 40px #7b2ff766;
-            color: #fff !important;
         }
         .stButton > button p {
             color: #ffffff !important;
@@ -103,6 +135,17 @@ def load_css():
             color: #e0e0ff !important;
         }
 
+        /* 데이터프레임(표) 다크 */
+        [data-testid="stDataFrame"] {
+            background-color: #1a1735 !important;
+        }
+
+        /* expander(접기/펼치기) 다크 */
+        .streamlit-expanderHeader, [data-testid="stExpander"] summary {
+            color: #e0e0ff !important;
+            background-color: rgba(255,255,255,0.05) !important;
+        }
+
         /* 구분선 */
         hr {
             border: none;
@@ -115,7 +158,6 @@ def load_css():
             background: rgba(15, 12, 41, 0.9);
             border-right: 1px solid #ff2e9a33;
         }
-        /* 사이드바 글자 & 페이지 링크 */
         [data-testid="stSidebar"] * {
             color: #e0e0ff !important;
         }
