@@ -9,6 +9,39 @@ def load_css():
             color: #e0e0ff;
         }
 
+        /* ⭐ 모든 기본 텍스트 밝게 강제 지정 */
+        .stApp, .stApp p, .stApp span, .stApp label, .stApp div,
+        .stMarkdown, [data-testid="stWidgetLabel"] p,
+        [data-testid="stMarkdownContainer"] p {
+            color: #e0e0ff;
+        }
+
+        /* ⭐ 입력창 라벨 (슬라이더, 체크박스, 텍스트입력 등) */
+        label, .stSlider label, .stSelectSlider label,
+        .stTextInput label, .stCheckbox label {
+            color: #e0e0ff !important;
+        }
+
+        /* ⭐ 텍스트 입력칸 안쪽 글자 & 배경 */
+        .stTextInput input {
+            color: #ffffff !important;
+            background-color: rgba(255,255,255,0.08) !important;
+            border: 1px solid #ff2e9a55 !important;
+            border-radius: 8px !important;
+        }
+
+        /* ⭐ 체크박스 글자 */
+        .stCheckbox p {
+            color: #e0e0ff !important;
+        }
+
+        /* ⭐ 슬라이더 숫자/값 표시 */
+        .stSlider [data-testid="stTickBarMin"],
+        .stSlider [data-testid="stTickBarMax"],
+        .stSlider [data-baseweb="slider"] div {
+            color: #e0e0ff !important;
+        }
+
         /* 폰트 */
         html, body, [class*="css"] {
             font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
@@ -28,7 +61,7 @@ def load_css():
         /* 버튼 - 네온 글로우 */
         .stButton > button {
             background: linear-gradient(90deg, #ff2e9a, #7b2ff7);
-            color: white;
+            color: white !important;
             border: none;
             border-radius: 12px;
             padding: 0.6em 1.4em;
@@ -39,7 +72,10 @@ def load_css():
         .stButton > button:hover {
             transform: translateY(-2px) scale(1.03);
             box-shadow: 0 0 25px #ff2e9a, 0 0 40px #7b2ff766;
-            color: #fff;
+            color: #fff !important;
+        }
+        .stButton > button p {
+            color: #ffffff !important;
         }
 
         /* 카드형 컨테이너 (글래스모피즘) */
@@ -53,11 +89,6 @@ def load_css():
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }
 
-        /* 입력 위젯 */
-        .stTextInput input, .stSlider, .stSelectSlider {
-            color: #e0e0ff;
-        }
-
         /* progress 바 네온 */
         .stProgress > div > div > div {
             background: linear-gradient(90deg, #00f0ff, #ff2e9a) !important;
@@ -65,8 +96,11 @@ def load_css():
 
         /* metric */
         [data-testid="stMetricValue"] {
-            color: #00f0ff;
+            color: #00f0ff !important;
             text-shadow: 0 0 10px #00f0ff88;
+        }
+        [data-testid="stMetricLabel"] {
+            color: #e0e0ff !important;
         }
 
         /* 구분선 */
@@ -80,6 +114,10 @@ def load_css():
         [data-testid="stSidebar"] {
             background: rgba(15, 12, 41, 0.9);
             border-right: 1px solid #ff2e9a33;
+        }
+        /* 사이드바 글자 & 페이지 링크 */
+        [data-testid="stSidebar"] * {
+            color: #e0e0ff !important;
         }
         </style>
     """, unsafe_allow_html=True)
