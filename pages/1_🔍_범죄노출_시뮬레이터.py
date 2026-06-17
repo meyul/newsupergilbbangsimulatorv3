@@ -35,10 +35,11 @@ def load_data():
     region2 = pd.read_csv("data/seoul_district_data.csv", encoding="utf-8-sig")
     busan = pd.read_csv("data/busan_district_data.csv", encoding="utf-8-sig")
     location = pd.read_csv("data/crime_location_statistics.csv", encoding="utf-8-sig")
-    return male, female, time, region1, region2, busan, location
+    seoul3 = pd.read_csv("data/crime_statistics.csv", encoding="utf-8-sig")
+    return male, female, time, region1, region2, busan, location, seoul3
 
 try:
-    male_df, female_df, time_df, region1_df, region2_df, busan_df, loc_df = load_data()
+    male_df, female_df, time_df, region1_df, region2_df, busan_df, loc_df, seoul3_df = load_data()
     data_loaded = True
 except Exception as e:
     st.error(f"⚠️ 데이터를 불러오지 못했어요: {e}")
@@ -67,24 +68,32 @@ age_options = {
     "65세 이상": {"남성": "남_65세이상", "여성": "65세이상"},
 }
 
+# 서울 25개 구 (3개 파일로 나뉨)
 SEOUL_REGION1 = ["종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구"]
 SEOUL_REGION2 = ["성북구", "강북구", "도봉구", "노원구", "은평구", "서대문구",
                  "마포구", "양천구", "강서구", "구로구", "금천구", "영등포구"]
+SEOUL_REGION3 = ["동작구", "관악구", "서초구", "강남구", "송파구", "강동구"]
 BUSAN_DISTRICTS = ["영도구", "부산진구", "동래구", "남구", "북구", "강서구",
                    "해운대구", "사하구", "금정구", "연제구", "수영구", "사상구", "기장군"]
 
 city_options = {
-    "서울특별시": SEOUL_REGION1 + SEOUL_REGION2,
+    "서울특별시": SEOUL_REGION1 + SEOUL_REGION2 + SEOUL_REGION3,
     "부산광역시": BUSAN_DISTRICTS,
 }
 
-# 활동 장소 → crime_location_statistics.csv의 컬럼
 location_options = {
     "🏠 주로 집(거주지)에 있음": "거주지/집_소계",
     "🛣️ 도로/길거리를 많이 다님": "도로_소계",
 }
 
 EXCLUDE = ["계", "소계", "(%)"]
+
+# ═══════════════════════════════════════
+# 죄종 이름 정리 (파일마다 표기 다른 것 통일)
+# ═══════════════════════════════════════
+def clean_crime_name(name):
+    """'강력범죄_소계' → '강력범죄소계', 언더바 제거 등"""
+    return str(name).strip().replace("_소계", "").replace("·", "").replace("/", "")
 
 # ═══════════════════════════════════════
 # 연산 함수
@@ -127,6 +136,7 @@ def get_crime_by_time(cols):
 def get_crime_by_region(city, district):
     scores = {}
     if city == "서울특별시" and district in SEOUL_REGION1:
+        # region1: 소분류 컬럼 있음
         for _, row in region1_df.iterrows():
             crime = str(row["소분류"]).strip()
             if crime in EXCLUDE:
@@ -135,7 +145,20 @@ def get_crime_by_region(city, district):
                 val = to_num(row[district])
                 if val > 0:
                     scores[crime] = val
+    elif city == "서울특별시" and district in SEOUL_REGION3:
+        # 새 파일: 죄종 컬럼 있음, 컬럼명은 '서울_OO구'
+        col_name = f"서울_{district}"
+        for _, row in seoul3_df.iterrows():
+            raw = str(row["죄종"]).strip()
+            if raw in ["계", "(%)"] or "소계" in raw:
+                continue
+            crime = clean_crime_name(raw)
+            if col_name in seoul3_df.columns:
+                val = to_num(row[col_name])
+                if val > 0:
+                    scores[crime] = val
     else:
+        # region2(서울 뒤) 또는 busan: 행 매칭
         df = region2_df if city == "서울특별시" else busan_df
         for idx, row in df.iterrows():
             if idx >= len(region1_df):
@@ -150,11 +173,9 @@ def get_crime_by_region(city, district):
     return scores
 
 def get_crime_by_location(loc_col):
-    """선택한 장소에서 많이 발생하는 범죄별 건수"""
     scores = {}
     for _, row in loc_df.iterrows():
         crime = str(row["죄종"]).strip()
-        # 장소 파일의 죄종은 '강력범죄 소계', '살인기수' 등
         if crime in ["계", "(%)"] or "소계" in crime:
             continue
         if loc_col in loc_df.columns:
@@ -168,6 +189,10 @@ def get_region_total(city, district):
         row = region1_df[(region1_df["대분류"] == "계") &
                          (region1_df["소분류"] == "계")].iloc[0]
         return to_num(row[district])
+    elif city == "서울특별시" and district in SEOUL_REGION3:
+        col_name = f"서울_{district}"
+        row = seoul3_df[seoul3_df["죄종"] == "계"].iloc[0]
+        return to_num(row[col_name]) if col_name in seoul3_df.columns else 0
     else:
         df = region2_df if city == "서울특별시" else busan_df
         return to_num(df.iloc[0][district])
@@ -198,10 +223,10 @@ def get_total_time_ratio(cols):
 def get_city_avg(city):
     districts = city_options[city]
     totals = [get_region_total(city, d) for d in districts]
+    totals = [t for t in totals if t > 0]
     return sum(totals) / len(totals) if totals else 0
 
 def get_location_ratio(loc_col):
-    """선택 장소의 전체 범죄 대비 발생 비율(%)"""
     total_row = loc_df[loc_df["죄종"] == "계"].iloc[0]
     grand = to_num(total_row["발생장소_계"])
     sel = to_num(total_row[loc_col]) if loc_col in loc_df.columns else 0
@@ -307,13 +332,13 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
                 f"background:linear-gradient(90deg,{bar_color},#ffffff44); border-radius:6px;'></div>"
                 f"</div></div>"
             )
+        loc_short = location.split(' ')[1] if ' ' in location else location
         st.markdown(
             f"<div class='glass-card' style='border-color:#ff2e5e;'>"
             f"<h3 style='color:#ff2e5e !important;'>🎯 당신에게 가장 위험한 범죄</h3>"
             f"<p style='color:#e0e0ff; font-size:1.05em;'>"
             f"<b>{gender} {age_group}</b>이고 <b>{city} {district}</b>에서 "
-            f"<b>{location.split(' ')[1] if ' ' in location else location}</b> 위주로 "
-            f"<b>{active_time}</b>에 활동하는 당신은<br>통계상 "
+            f"<b>{loc_short}</b> 위주로 <b>{active_time}</b>에 활동하는 당신은<br>통계상 "
             f"<b style='color:#ff2e9a; font-size:1.25em;'>「{top1[0]}」</b>에 "
             f"가장 취약합니다!</p>"
             f"<hr>"
