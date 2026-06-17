@@ -6,7 +6,7 @@ st.set_page_config(page_title="범죄 노출 시뮬레이터", page_icon="🔍")
 load_css()
 
 st.markdown("<h1>🔍 범죄 노출 확률 분석</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color:#a0a0d0;'>성별·나이·시간·지역을 실제 통계로 종합 분석합니다.</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#a0a0d0;'>성별·나이·시간·지역·장소를 실제 통계로 종합 분석합니다.</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ═══════════════════════════════════════
@@ -34,10 +34,11 @@ def load_data():
     region1 = pd.read_csv("data/seoul_crime_statistics.csv", encoding="utf-8-sig")
     region2 = pd.read_csv("data/seoul_district_data.csv", encoding="utf-8-sig")
     busan = pd.read_csv("data/busan_district_data.csv", encoding="utf-8-sig")
-    return male, female, time, region1, region2, busan
+    location = pd.read_csv("data/crime_location_statistics.csv", encoding="utf-8-sig")
+    return male, female, time, region1, region2, busan, location
 
 try:
-    male_df, female_df, time_df, region1_df, region2_df, busan_df = load_data()
+    male_df, female_df, time_df, region1_df, region2_df, busan_df, loc_df = load_data()
     data_loaded = True
 except Exception as e:
     st.error(f"⚠️ 데이터를 불러오지 못했어요: {e}")
@@ -66,17 +67,21 @@ age_options = {
     "65세 이상": {"남성": "남_65세이상", "여성": "65세이상"},
 }
 
-# 지역별 자치구 (어느 파일에 있는지 구분)
 SEOUL_REGION1 = ["종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구"]
 SEOUL_REGION2 = ["성북구", "강북구", "도봉구", "노원구", "은평구", "서대문구",
                  "마포구", "양천구", "강서구", "구로구", "금천구", "영등포구"]
 BUSAN_DISTRICTS = ["영도구", "부산진구", "동래구", "남구", "북구", "강서구",
                    "해운대구", "사하구", "금정구", "연제구", "수영구", "사상구", "기장군"]
 
-# 사용자에게 보여줄 지역 선택지 (도시 구분)
 city_options = {
     "서울특별시": SEOUL_REGION1 + SEOUL_REGION2,
     "부산광역시": BUSAN_DISTRICTS,
+}
+
+# 활동 장소 → crime_location_statistics.csv의 컬럼
+location_options = {
+    "🏠 주로 집(거주지)에 있음": "거주지/집_소계",
+    "🛣️ 도로/길거리를 많이 다님": "도로_소계",
 }
 
 EXCLUDE = ["계", "소계", "(%)"]
@@ -120,10 +125,8 @@ def get_crime_by_time(cols):
     return scores
 
 def get_crime_by_region(city, district):
-    """선택한 도시·자치구의 범죄별 건수"""
     scores = {}
     if city == "서울특별시" and district in SEOUL_REGION1:
-        # region1: 소분류 컬럼이 직접 있음
         for _, row in region1_df.iterrows():
             crime = str(row["소분류"]).strip()
             if crime in EXCLUDE:
@@ -133,7 +136,6 @@ def get_crime_by_region(city, district):
                 if val > 0:
                     scores[crime] = val
     else:
-        # region2(서울 뒤) 또는 busan: 행 순서로 region1의 소분류 매칭
         df = region2_df if city == "서울특별시" else busan_df
         for idx, row in df.iterrows():
             if idx >= len(region1_df):
@@ -147,15 +149,28 @@ def get_crime_by_region(city, district):
                     scores[crime] = val
     return scores
 
+def get_crime_by_location(loc_col):
+    """선택한 장소에서 많이 발생하는 범죄별 건수"""
+    scores = {}
+    for _, row in loc_df.iterrows():
+        crime = str(row["죄종"]).strip()
+        # 장소 파일의 죄종은 '강력범죄 소계', '살인기수' 등
+        if crime in ["계", "(%)"] or "소계" in crime:
+            continue
+        if loc_col in loc_df.columns:
+            val = to_num(row[loc_col])
+            if val > 0:
+                scores[crime] = val
+    return scores
+
 def get_region_total(city, district):
-    """선택한 구의 전체 범죄 건수 (계 행 = 첫 데이터 행)"""
     if city == "서울특별시" and district in SEOUL_REGION1:
         row = region1_df[(region1_df["대분류"] == "계") &
                          (region1_df["소분류"] == "계")].iloc[0]
         return to_num(row[district])
     else:
         df = region2_df if city == "서울특별시" else busan_df
-        return to_num(df.iloc[0][district])  # 첫 행이 '계'
+        return to_num(df.iloc[0][district])
 
 def normalize(d):
     total = sum(d.values())
@@ -163,13 +178,15 @@ def normalize(d):
         return {}
     return {k: v / total for k, v in d.items()}
 
-def combine_scores(profile, time, region):
-    p, t, r = normalize(profile), normalize(time), normalize(region)
+def combine_scores(profile, time, region, location):
+    """프로필 35% + 시간 25% + 지역 20% + 장소 20%"""
+    p, t, r, l = normalize(profile), normalize(time), normalize(region), normalize(location)
     combined = {}
-    for crime in set(p) | set(t) | set(r):
-        combined[crime] = (p.get(crime, 0) * 0.45 +
-                           t.get(crime, 0) * 0.30 +
-                           r.get(crime, 0) * 0.25)
+    for crime in set(p) | set(t) | set(r) | set(l):
+        combined[crime] = (p.get(crime, 0) * 0.35 +
+                           t.get(crime, 0) * 0.25 +
+                           r.get(crime, 0) * 0.20 +
+                           l.get(crime, 0) * 0.20)
     return sorted(combined.items(), key=lambda x: x[1], reverse=True)
 
 def get_total_time_ratio(cols):
@@ -179,10 +196,16 @@ def get_total_time_ratio(cols):
     return round(sel / grand * 100, 1) if grand else 0
 
 def get_city_avg(city):
-    """도시의 자치구 평균 범죄 건수"""
     districts = city_options[city]
     totals = [get_region_total(city, d) for d in districts]
     return sum(totals) / len(totals) if totals else 0
+
+def get_location_ratio(loc_col):
+    """선택 장소의 전체 범죄 대비 발생 비율(%)"""
+    total_row = loc_df[loc_df["죄종"] == "계"].iloc[0]
+    grand = to_num(total_row["발생장소_계"])
+    sel = to_num(total_row[loc_col]) if loc_col in loc_df.columns else 0
+    return round(sel / grand * 100, 1) if grand else 0
 
 # ═══════════════════════════════════════
 # 사용자 입력
@@ -193,6 +216,7 @@ gender = st.radio("👤 성별", ["남성", "여성"], horizontal=True)
 age_group = st.selectbox("🎂 나이대", list(age_options.keys()))
 city = st.selectbox("🏙️ 도시", list(city_options.keys()))
 district = st.selectbox("🗺️ 자치구", city_options[city])
+location = st.selectbox("📍 주로 머무는 장소", list(location_options.keys()))
 active_time = st.selectbox("🕐 주로 활동하는 시간대", list(time_options.keys()))
 night_out = st.slider("🌙 밤늦게 돌아다니는 빈도 (주당 횟수)", 0, 7, 2)
 sns_open = st.select_slider(
@@ -210,6 +234,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 if st.button("⚡ 통합 분석 시작") and data_loaded:
     cols = time_options[active_time]
     age_col = age_options[age_group][gender]
+    loc_col = location_options[location]
 
     # ── 종합 노출 확률 점수 ──
     score = night_out * 4
@@ -222,14 +247,13 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
     time_ratio = get_total_time_ratio(cols)
     score += time_ratio * 0.5
 
-    # 지역 위험도 (그 도시 평균 대비)
     region_total = get_region_total(city, district)
     city_avg = get_city_avg(city)
-    if city_avg > 0:
-        region_factor = region_total / city_avg
-        score += (region_factor - 1) * 15
-    else:
-        region_factor = 1
+    region_factor = region_total / city_avg if city_avg > 0 else 1
+    score += (region_factor - 1) * 15
+
+    loc_ratio = get_location_ratio(loc_col)
+    score += loc_ratio * 0.3
 
     probability = max(0, min(100, round(score)))
 
@@ -237,7 +261,8 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
     profile_scores = get_crime_by_profile(gender, age_col)
     time_scores = get_crime_by_time(cols)
     region_scores = get_crime_by_region(city, district)
-    ranked = combine_scores(profile_scores, time_scores, region_scores)
+    location_scores = get_crime_by_location(loc_col)
+    ranked = combine_scores(profile_scores, time_scores, region_scores, location_scores)
 
     # ── 결과 헤더 ──
     st.markdown("---")
@@ -257,7 +282,8 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
     st.markdown(
         f"<div class='glass-card' style='border-color:{color}; box-shadow:0 0 25px {color}44;'>"
         f"<h3 style='color:{color} !important; text-shadow:0 0 12px {color}88;'>{title}</h3>"
-        f"<p style='color:#e0e0ff;'>{gender} · {age_group} · {city} {district} · {active_time}</p>"
+        f"<p style='color:#e0e0ff;'>{gender} · {age_group} · {city} {district} · "
+        f"{location} · {active_time}</p>"
         f"</div>",
         unsafe_allow_html=True
     )
@@ -285,19 +311,32 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
             f"<div class='glass-card' style='border-color:#ff2e5e;'>"
             f"<h3 style='color:#ff2e5e !important;'>🎯 당신에게 가장 위험한 범죄</h3>"
             f"<p style='color:#e0e0ff; font-size:1.05em;'>"
-            f"<b>{gender} {age_group}</b>이고 <b>{city} {district}</b>의 "
+            f"<b>{gender} {age_group}</b>이고 <b>{city} {district}</b>에서 "
+            f"<b>{location.split(' ')[1] if ' ' in location else location}</b> 위주로 "
             f"<b>{active_time}</b>에 활동하는 당신은<br>통계상 "
             f"<b style='color:#ff2e9a; font-size:1.25em;'>「{top1[0]}」</b>에 "
             f"가장 취약합니다!</p>"
             f"<hr>"
             f"<p style='color:#a0a0d0; font-size:0.85em;'>"
-            f"※ 성별·연령(45%) + 시간대(30%) + 지역(25%) 종합 연산</p>"
+            f"※ 성별·연령(35%)+시간(25%)+지역(20%)+장소(20%) 종합</p>"
             f"{rank_html}"
             f"</div>",
             unsafe_allow_html=True
         )
     else:
         st.warning("해당 조건의 데이터를 찾지 못했어요.")
+
+    # ══════════════════════════════════════
+    # 📍 장소 분석
+    # ══════════════════════════════════════
+    st.markdown(
+        f"<div class='glass-card'>"
+        f"<h3>📍 장소 분석</h3>"
+        f"<p>당신이 머무는 <b>{location}</b> 장소에서는<br>"
+        f"전체 범죄의 <b style='color:#ff2e9a;'>{loc_ratio}%</b>가 발생합니다.</p>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
 
     # ══════════════════════════════════════
     # 🗺️ 지역 분석
@@ -307,9 +346,9 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
     st.markdown(
         f"<div class='glass-card'>"
         f"<h3>🗺️ 지역 분석 ({city} {district})</h3>"
-        f"<p>📍 <b>{district}</b> 연간 총 범죄 발생: "
+        f"<p>📍 <b>{district}</b> 연간 총 범죄: "
         f"<b style='color:#ff2e9a;'>{int(region_total):,}건</b></p>"
-        f"<p>📊 {city} 자치구 평균({int(city_avg):,}건) 대비: "
+        f"<p>📊 {city} 평균({int(city_avg):,}건) 대비: "
         f"<b style='color:{risk_color};'>{round(region_factor*100)}%</b> "
         f"(평균보다 {risk_word} 편)</p>"
         f"</div>",
@@ -341,11 +380,15 @@ if st.button("⚡ 통합 분석 시작") and data_loaded:
     if ranked:
         tips.append(f"당신은 '{ranked[0][0]}'에 가장 취약합니다. 특별히 주의하세요.")
     if region_factor > 1:
-        tips.append(f"{district}는 {city} 평균보다 범죄가 많은 지역입니다. 주변을 살피세요.")
+        tips.append(f"{district}는 {city} 평균보다 범죄가 많습니다. 주변을 살피세요.")
+    if "도로" in location:
+        tips.append("길거리에서는 소지품을 주의하고, 어두운 골목을 피하세요.")
+    if "집" in location:
+        tips.append("거주지 보안(문단속, CCTV)을 점검하세요.")
     if "밤늦게" in active_time or "새벽" in active_time:
-        tips.append("심야·새벽은 위험 시간대입니다. 밝고 사람 많은 길로 다니세요.")
+        tips.append("심야·새벽은 위험 시간대입니다. 밝은 길로 다니세요.")
     if sns_open in ["많이 공개", "전체 공개"]:
-        tips.append("SNS 공개 범위를 줄이면 표적이 될 확률이 낮아져요.")
+        tips.append("SNS 공개 범위를 줄이세요.")
     if careless >= 6:
         tips.append("귀중품 관리에 더 신경 쓰세요.")
     if not self_defense:
