@@ -32,24 +32,21 @@ def build_enemies():
     """시간대 데이터로 범죄자 능력치 생성"""
     time_df = pd.read_csv("data/crime_occurrence_by_time.csv", encoding="utf-8-sig")
 
-    # 강력범죄/폭력범죄로 분류 (공격력 차등)
     strong_crimes = ["살인기수", "살인미수등", "강도", "강간", "방화"]
 
     enemies = []
     exclude = ["계", "소계"]
     for _, row in time_df.iterrows():
         crime = str(row["세부죄종"]).strip()
-        big = str(row["대분류"]).strip()
+        big = str(row["죄종"]).strip()   # ⭐ '대분류' → '죄종'으로 수정!
         if crime in exclude:
             continue
         total = to_num(row["계"])
-        if total < 1000:  # 너무 적게 발생하는 범죄는 제외
+        if total < 1000:
             continue
 
-        # 발생건수 → HP (정규화해서 50~150 범위)
         hp = int(50 + min(100, total / 5000))
 
-        # 강력범죄면 공격력 ↑
         if crime in strong_crimes or big == "강력범죄":
             atk_min, atk_max = 15, 28
             tier = "강력"
@@ -70,29 +67,28 @@ def build_enemies():
             "total": int(total),
         })
 
-    # 발생건수 많은 순으로 정렬 → 뒤로 갈수록 강한 적
     enemies.sort(key=lambda x: x["total"])
     return enemies
 
 try:
     ALL_ENEMIES = build_enemies()
     data_loaded = True
+    if len(ALL_ENEMIES) == 0:
+        st.error("⚠️ 적을 만들 데이터가 없어요. CSV를 확인해주세요.")
+        data_loaded = False
 except Exception as e:
     st.error(f"⚠️ 데이터를 불러오지 못했어요: {e}")
     data_loaded = False
     ALL_ENEMIES = []
 
-# 적 티어별 이모지
 TIER_EMOJI = {"강력": "🔴", "폭력": "🟠", "일반": "🟡"}
 
 # ═══════════════════════════════════════
 # 게임 상태 초기화
 # ═══════════════════════════════════════
 def init_game():
-    # 매번 랜덤하게 5명의 적 선택 (난이도 순으로 정렬)
     chosen = random.sample(ALL_ENEMIES, min(5, len(ALL_ENEMIES)))
     chosen.sort(key=lambda x: x["total"])
-    # 깊은 복사 (HP 초기화)
     st.session_state.enemies = [dict(e, hp=e["max_hp"]) for e in chosen]
     st.session_state.stage = 0
     st.session_state.player_hp = 100
@@ -101,7 +97,7 @@ def init_game():
     st.session_state.game_over = False
     st.session_state.victory = False
     st.session_state.defending = False
-    st.session_state.potions = 2  # 회복 아이템
+    st.session_state.potions = 2
 
 if "enemies" not in st.session_state and data_loaded:
     init_game()
@@ -131,7 +127,6 @@ if data_loaded and "enemies" in st.session_state:
     stage = st.session_state.stage
     total_stages = len(st.session_state.enemies)
 
-    # 진행도 표시
     st.markdown(
         f"<div class='glass-card' style='padding:14px; text-align:center;'>"
         f"<p style='margin:0; color:#00f0ff;'>"
@@ -141,7 +136,6 @@ if data_loaded and "enemies" in st.session_state:
         unsafe_allow_html=True
     )
 
-    # ── 게임 진행 중 ──
     if not st.session_state.game_over and stage < total_stages:
         enemy = st.session_state.enemies[stage]
         emoji = TIER_EMOJI.get(enemy["tier"], "🦹")
@@ -154,7 +148,6 @@ if data_loaded and "enemies" in st.session_state:
             hp_bar(f"{enemy['name']}", enemy["hp"],
                    enemy["max_hp"], "#ff2e5e", emoji)
 
-        # 적 정보
         st.markdown(
             f"<div class='glass-card'>"
             f"<p style='color:#e0e0ff;'>"
@@ -167,7 +160,6 @@ if data_loaded and "enemies" in st.session_state:
             unsafe_allow_html=True
         )
 
-        # ── 적 턴 함수 ──
         def enemy_attack():
             e = st.session_state.enemies[st.session_state.stage]
             dmg = random.randint(e["atk_min"], e["atk_max"])
@@ -178,7 +170,6 @@ if data_loaded and "enemies" in st.session_state:
             st.session_state.player_hp -= dmg
             st.session_state.log.append(f"{emoji} {e['name']}의 공격! {dmg} 데미지!")
 
-        # ── 승패/스테이지 체크 ──
         def check_state():
             if st.session_state.player_hp <= 0:
                 st.session_state.log.append("💀 당신은 쓰러졌습니다... 패배!")
@@ -188,7 +179,6 @@ if data_loaded and "enemies" in st.session_state:
                 e = st.session_state.enemies[st.session_state.stage]
                 st.session_state.log.append(f"🎉 {e['name']}을(를) 물리쳤다!")
                 st.session_state.stage += 1
-                # 다음 스테이지로 (HP 약간 회복 보너스)
                 if st.session_state.stage < total_stages:
                     heal = 15
                     st.session_state.player_hp = min(
@@ -200,7 +190,6 @@ if data_loaded and "enemies" in st.session_state:
                     st.session_state.game_over = True
                     st.session_state.log.append("👑 모든 범죄자를 물리쳤다! 완전 승리!")
 
-        # ── 행동 버튼 ──
         st.markdown("<h3>⚡ 행동 선택</h3>", unsafe_allow_html=True)
         b1, b2, b3, b4 = st.columns(4)
 
@@ -238,7 +227,7 @@ if data_loaded and "enemies" in st.session_state:
                 st.rerun()
 
         with b4:
-            if st.button(f"🧪 회복"):
+            if st.button("🧪 회복"):
                 if st.session_state.potions > 0:
                     st.session_state.potions -= 1
                     heal = 30
@@ -252,7 +241,6 @@ if data_loaded and "enemies" in st.session_state:
                     st.session_state.log.append("❌ 회복약이 없습니다!")
                 st.rerun()
 
-    # ── 게임 종료 ──
     elif st.session_state.game_over:
         if st.session_state.victory:
             st.markdown(
@@ -274,7 +262,6 @@ if data_loaded and "enemies" in st.session_state:
                 unsafe_allow_html=True
             )
 
-    # ── 전투 로그 ──
     st.markdown("---")
     st.markdown("<h3>📜 BATTLE LOG</h3>", unsafe_allow_html=True)
     log_html = "".join([
@@ -286,7 +273,6 @@ if data_loaded and "enemies" in st.session_state:
         unsafe_allow_html=True
     )
 
-    # ── 재시작 ──
     st.markdown("---")
     if st.button("🔄 새 게임 시작"):
         init_game()
