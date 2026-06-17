@@ -6,33 +6,49 @@ st.set_page_config(page_title="범죄 노출 시뮬레이터", page_icon="🔍")
 load_css()
 
 st.markdown("<h1>🔍 범죄 노출 확률 분석</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color:#a0a0d0;'>실제 경찰청 범죄 통계를 연산해 위험을 예측합니다.</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#a0a0d0;'>당신의 성별·나이·활동시간을 실제 통계로 종합 분석합니다.</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ─────────────────────────────────────
+# ═══════════════════════════════════════
+# 숫자 변환 함수 (쉼표, 하이픈, 괄호 처리)
+# ═══════════════════════════════════════
+def to_num(x):
+    """'1,187,197' → 1187197 / '-' → 0 / 공백 → 0"""
+    if pd.isna(x):
+        return 0
+    s = str(x).strip().replace(",", "").replace("(", "").replace(")", "")
+    if s in ["-", "", "nan"]:
+        return 0
+    try:
+        return float(s)
+    except ValueError:
+        return 0
+
+# ═══════════════════════════════════════
 # 데이터 불러오기
-# ─────────────────────────────────────
+# ═══════════════════════════════════════
 @st.cache_data
 def load_data():
-    trend = pd.read_csv("data/1_범죄_피해자_및_범죄피해_추세.csv", encoding="utf-8-sig")
-    time = pd.read_csv("data/2_범죄_발생시간_및_장소.csv", encoding="utf-8-sig")
-    damage = pd.read_csv("data/4_피해결과.csv", encoding="utf-8-sig")
-    return trend, time, damage
+    male = pd.read_csv("data/crime_statistics_korea.csv", encoding="utf-8-sig")
+    female = pd.read_csv("data/table_data.csv", encoding="utf-8-sig")
+    time = pd.read_csv("data/crime_occurrence_by_time.csv", encoding="utf-8-sig")
+    return male, female, time
 
 try:
-    trend_df, time_df, damage_df = load_data()
+    male_df, female_df, time_df = load_data()
     data_loaded = True
 except Exception as e:
     st.error(f"⚠️ 데이터를 불러오지 못했어요: {e}")
     data_loaded = False
 
-# ─────────────────────────────────────
-# 시간대 컬럼 정의
-# ─────────────────────────────────────
+# ═══════════════════════════════════════
+# 컬럼/매핑 정의
+# ═══════════════════════════════════════
+# 시간대 컬럼
 TIME_COLS = ["00:00~02:59", "03:00~05:59", "06:00~08:59", "09:00~11:59",
              "12:00~14:59", "15:00~17:59", "18:00~20:59", "21:00~23:59"]
 
-# 사용자 활동시간대 → 실제 데이터 컬럼 매핑
+# 사용자 활동시간 → 실제 컬럼
 time_options = {
     "주로 낮에 활동 (09~18시)": ["09:00~11:59", "12:00~14:59", "15:00~17:59"],
     "저녁에 활동 (18~21시)": ["18:00~20:59"],
@@ -40,69 +56,94 @@ time_options = {
     "새벽에 활동 (03~06시)": ["03:00~05:59"],
 }
 
-# ─────────────────────────────────────
-# 연산 함수들 (실제 CSV 숫자로 계산!)
-# ─────────────────────────────────────
-def get_time_total_ratio(time_df, cols):
-    """선택한 시간대들의 전체 범죄 발생 비율(%) 합산"""
-    total_row = time_df[time_df["죄종"] == "계"].iloc[0]
-    grand_total = total_row["계"]
-    selected = sum(total_row[c] for c in cols)
-    return round(selected / grand_total * 100, 1)
+# 나이대 → 남성/여성 파일의 연령 컬럼명
+# 남성 파일: 남_18세이하, 남_20세 ...
+# 여성 파일: 18세이하, 20세 ... (헤더가 그냥 나이로 되어있음)
+age_options = {
+    "10대 이하 (18세 이하)": {"남성": "남_18세이하", "여성": "18세이하"},
+    "20대": {"남성": "남_20세", "여성": "20세"},
+    "30대": {"남성": "남_30세이하", "여성": "30세이하"},
+    "40대": {"남성": "남_40세이하", "여성": "40세이하"},
+    "50대": {"남성": "남_50세이하", "여성": "50세이하"},
+    "60대": {"남성": "남_60세이하", "여성": "60세이하"},
+    "65세 이상": {"남성": "남_65세이상", "여성": "65세이상"},
+}
 
-def get_top_crimes_by_time(time_df, cols, top_n=3):
-    """선택한 시간대에 '가장 많이 발생한 범죄 유형' 계산"""
-    exclude = ["계", "강력범죄 소계", "절도범죄"]  # 합계성 행 제외
-    result = []
+# 합계성 행(개별 범죄 아님) 제외
+EXCLUDE = ["계", "소계", "(%)"]
+
+# ═══════════════════════════════════════
+# 연산 함수
+# ═══════════════════════════════════════
+def get_crime_by_profile(gender, age_col_name):
+    """선택한 성별·나이대가 많이 당하는 범죄별 건수 {범죄명: 건수}"""
+    scores = {}
+    if gender == "남성":
+        df = male_df
+        for _, row in df.iterrows():
+            crime = str(row["소분류"]).strip()
+            if crime in EXCLUDE:
+                continue
+            if age_col_name in df.columns:
+                val = to_num(row[age_col_name])
+                if val > 0:
+                    scores[crime] = val
+    else:  # 여성: table_data.csv 사용 (행 순서가 male_df와 동일)
+        # 여성 파일은 소분류 컬럼이 없으므로, male_df의 소분류를 행 번호로 매칭
+        for idx, row in female_df.iterrows():
+            if idx >= len(male_df):
+                break
+            crime = str(male_df.iloc[idx]["소분류"]).strip()
+            if crime in EXCLUDE:
+                continue
+            if age_col_name in female_df.columns:
+                val = to_num(row[age_col_name])
+                if val > 0:
+                    scores[crime] = val
+    return scores
+
+def get_crime_by_time(cols):
+    """선택한 시간대에 많이 발생하는 범죄별 건수 {범죄명: 건수}"""
+    scores = {}
     for _, row in time_df.iterrows():
-        crime = row["죄종"]
-        if crime in exclude:
+        crime = str(row["세부죄종"]).strip()
+        if crime in EXCLUDE:
             continue
-        count = sum(row[c] for c in cols)
+        count = sum(to_num(row[c]) for c in cols)
         if count > 0:
-            result.append((crime, int(count)))
-    result.sort(key=lambda x: x[1], reverse=True)
-    total = sum(c for _, c in result)
-    top = []
-    for crime, count in result[:top_n]:
-        ratio = round(count / total * 100, 1) if total > 0 else 0
-        top.append((crime, count, ratio))
-    return top
+            scores[crime] = count
+    return scores
 
-def get_damage_distribution(damage_df, crime_name):
-    """특정 범죄의 피해 금액 분포 계산"""
-    money_cols = ["피해무", "1만원 이하", "10만원 이하", "100만원 이하",
-                  "1000만원 이하", "1억원 이하", "5억원 이하", "50억원 이하", "50억원 초과"]
-    row = damage_df[damage_df["죄종"] == crime_name]
-    if row.empty:
-        return None
-    row = row.iloc[0]
-    total = row["계"]
+def normalize(d):
+    """건수를 0~1 비율로 정규화"""
+    total = sum(d.values())
     if total == 0:
-        return None
-    dist = []
-    for col in money_cols:
-        if col in row.index:
-            ratio = round(row[col] / total * 100, 1)
-            dist.append((col, ratio))
-    dist.sort(key=lambda x: x[1], reverse=True)
-    return dist
+        return {}
+    return {k: v / total for k, v in d.items()}
 
-def get_gender_ratio(trend_df, crime_type, gender):
-    """특정 범죄유형의 성별 피해 구성비"""
-    row = trend_df[
-        (trend_df["범죄유형"] == crime_type) & (trend_df["성별"] == gender)
-    ]
-    if row.empty:
-        return None
-    return row.iloc[0]["2024년 구성비"]
+def combine_scores(profile_scores, time_scores):
+    """프로필 60% + 시간대 40% 종합 → 위험 범죄 순위"""
+    p = normalize(profile_scores)
+    t = normalize(time_scores)
+    combined = {}
+    for crime in set(p) | set(t):
+        combined[crime] = p.get(crime, 0) * 0.6 + t.get(crime, 0) * 0.4
+    return sorted(combined.items(), key=lambda x: x[1], reverse=True)
 
-# ─────────────────────────────────────
+def get_total_time_ratio(cols):
+    """선택 시간대의 전체 범죄 발생 비율(%)"""
+    total_row = time_df[(time_df["죄종"] == "계") & (time_df["세부죄종"] == "계")].iloc[0]
+    grand = to_num(total_row["계"])
+    sel = sum(to_num(total_row[c]) for c in cols)
+    return round(sel / grand * 100, 1) if grand else 0
+
+# ═══════════════════════════════════════
 # 사용자 입력
-# ─────────────────────────────────────
+# ═══════════════════════════════════════
 st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
 name = st.text_input("🧑 이름(또는 닉네임)", "익명")
 gender = st.radio("👤 성별", ["남성", "여성"], horizontal=True)
+age_group = st.selectbox("🎂 나이대", list(age_options.keys()))
 active_time = st.selectbox("🕐 주로 활동하는 시간대", list(time_options.keys()))
 night_out = st.slider("🌙 밤늦게 돌아다니는 빈도 (주당 횟수)", 0, 7, 2)
 sns_open = st.select_slider(
@@ -115,13 +156,14 @@ risky_area = st.checkbox("🏙️ 위험 지역에 자주 방문한다")
 self_defense = st.checkbox("🛡️ 호신술/안전 교육을 받은 적이 있다")
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ─────────────────────────────────────
+# ═══════════════════════════════════════
 # 분석 실행
-# ─────────────────────────────────────
-if st.button("⚡ 확률 분석 시작") and data_loaded:
+# ═══════════════════════════════════════
+if st.button("⚡ 통합 분석 시작") and data_loaded:
     cols = time_options[active_time]
+    age_col = age_options[age_group][gender]
 
-    # ── 종합 위험 점수 계산 ──
+    # ── 종합 노출 확률 점수 ──
     score = night_out * 4
     sns_map = {"비공개": 0, "약간 공개": 5, "보통": 10, "많이 공개": 15, "전체 공개": 20}
     score += sns_map[sns_open]
@@ -131,17 +173,19 @@ if st.button("⚡ 확률 분석 시작") and data_loaded:
     if self_defense:
         score -= 15
 
-    time_ratio = get_time_total_ratio(time_df, cols)
+    time_ratio = get_total_time_ratio(cols)
     score += time_ratio * 0.5
-
-    gender_ratio = get_gender_ratio(trend_df, "전체범죄", gender)
-    score += gender_ratio * 0.3
 
     probability = max(0, min(100, round(score)))
 
+    # ── 통합 위험 범죄 순위 ──
+    profile_scores = get_crime_by_profile(gender, age_col)
+    time_scores = get_crime_by_time(cols)
+    ranked = combine_scores(profile_scores, time_scores)
+
     # ── 결과 헤더 ──
     st.markdown("---")
-    st.markdown(f"<h2>📊 {name}님의 분석 결과</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2>📊 {name}님의 통합 분석 결과</h2>", unsafe_allow_html=True)
     st.progress(probability / 100)
     st.metric("종합 노출 확률", f"{probability}%")
 
@@ -157,106 +201,63 @@ if st.button("⚡ 확률 분석 시작") and data_loaded:
     st.markdown(
         f"<div class='glass-card' style='border-color:{color}; box-shadow:0 0 25px {color}44;'>"
         f"<h3 style='color:{color} !important; text-shadow:0 0 12px {color}88;'>{title}</h3>"
+        f"<p style='color:#e0e0ff;'>{gender} · {age_group} · {active_time}</p>"
         f"</div>",
         unsafe_allow_html=True
     )
 
     # ══════════════════════════════════════
-    # 🎯 예측 1: 어떤 범죄에 노출될까?
+    # 🎯 당신에게 가장 위험한 범죄 (통합!)
     # ══════════════════════════════════════
-    top_crimes = get_top_crimes_by_time(time_df, cols, top_n=3)
-    if top_crimes:
-        crime_html = ""
-        for i, (crime, count, ratio) in enumerate(top_crimes, 1):
-            crime_html += (
-                f"<p style='margin:8px 0;'>"
-                f"<b style='color:#ff2e9a;'>{i}위. {crime}</b>"
-                f"&nbsp;—&nbsp; 이 시간대 발생 {count:,}건 "
-                f"(해당 시간 범죄 중 <b style='color:#00f0ff;'>{ratio}%</b>)"
-                f"</p>"
+    if ranked:
+        top1 = ranked[0]
+        rank_html = ""
+        for i, (crime, sc) in enumerate(ranked[:5], 1):
+            pct = round(sc * 100, 1)
+            bar_color = "#ff2e5e" if i == 1 else "#ff2e9a" if i == 2 else "#7b2ff7"
+            rank_html += (
+                f"<div style='margin:10px 0;'>"
+                f"<p style='margin:0 0 4px 0;'>"
+                f"<b style='color:{bar_color};'>{i}위. {crime}</b> "
+                f"<span style='color:#00f0ff;'>위험도 {pct}</span></p>"
+                f"<div style='background:rgba(0,0,0,0.4); border-radius:6px; height:14px; overflow:hidden;'>"
+                f"<div style='width:{min(100, pct*4)}%; height:100%; "
+                f"background:linear-gradient(90deg,{bar_color},#ffffff44); border-radius:6px;'></div>"
+                f"</div></div>"
             )
         st.markdown(
-            f"<div class='glass-card'>"
-            f"<h3>🎯 당신이 노출될 가능성이 높은 범죄 TOP3</h3>"
-            f"<p style='color:#a0a0d0; font-size:0.9em;'>"
-            f"※ {active_time} 시간대 실제 발생 통계 기준</p>"
-            f"{crime_html}"
+            f"<div class='glass-card' style='border-color:#ff2e5e;'>"
+            f"<h3 style='color:#ff2e5e !important;'>🎯 당신에게 가장 위험한 범죄</h3>"
+            f"<p style='color:#e0e0ff; font-size:1.05em;'>"
+            f"<b>{gender} {age_group}</b>이고 <b>{active_time}</b>에 활동하는 당신은<br>"
+            f"통계상 <b style='color:#ff2e9a; font-size:1.25em;'>「{top1[0]}」</b>에 "
+            f"가장 취약합니다!</p>"
+            f"<hr>"
+            f"<p style='color:#a0a0d0; font-size:0.85em;'>"
+            f"※ 성별·연령별 피해통계(60%) + 시간대 발생통계(40%) 종합 연산</p>"
+            f"{rank_html}"
             f"</div>",
             unsafe_allow_html=True
         )
-        top1_crime = top_crimes[0][0]
     else:
-        top1_crime = None
+        st.warning("해당 조건의 데이터를 찾지 못했어요. 입력을 바꿔보세요.")
 
     # ══════════════════════════════════════
-    # 🕐 예측 2: 언제 당할까?
+    # 🕐 시간대 분석
     # ══════════════════════════════════════
-    total_row = time_df[time_df["죄종"] == "계"].iloc[0]
-    grand_total = total_row["계"]
-    time_risks = [(c, round(total_row[c] / grand_total * 100, 1)) for c in TIME_COLS]
-    time_risks_sorted = sorted(time_risks, key=lambda x: x[1], reverse=True)
-    most_dangerous_time = time_risks_sorted[0]
+    total_row = time_df[(time_df["죄종"] == "계") & (time_df["세부죄종"] == "계")].iloc[0]
+    grand = to_num(total_row["계"])
+    time_risks = [(c, round(to_num(total_row[c]) / grand * 100, 1)) for c in TIME_COLS]
+    most_dangerous = sorted(time_risks, key=lambda x: x[1], reverse=True)[0]
 
     st.markdown(
         f"<div class='glass-card'>"
-        f"<h3>🕐 가장 위험한 시간대 분석</h3>"
-        f"<p>📍 당신의 활동시간(<b>{active_time}</b>)의 범죄 발생 비율: "
+        f"<h3>🕐 시간대 분석</h3>"
+        f"<p>📍 당신의 활동시간(<b>{active_time}</b>) 범죄 발생 비율: "
         f"<b style='color:#ff2e9a;'>{time_ratio}%</b></p>"
-        f"<p>⚠️ 전체 통계상 가장 위험한 시간대: "
-        f"<b style='color:#ff2e5e;'>{most_dangerous_time[0]}</b> "
-        f"(전체 범죄의 <b>{most_dangerous_time[1]}%</b> 발생)</p>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
-
-    # ══════════════════════════════════════
-    # 💰 예측 3: 피해 규모는?
-    # ══════════════════════════════════════
-    damage_map = {
-        "절도범죄": "절도", "절도": "절도",
-        "강도": "강도", "사기": "사기",
-        "손괴": "손괴", "공갈": "공갈"
-    }
-    target_crime = damage_map.get(top1_crime, "절도") if top1_crime else "절도"
-    dist = get_damage_distribution(damage_df, target_crime)
-
-    if dist:
-        top_damage = dist[:3]
-        dmg_html = ""
-        for label, ratio in top_damage:
-            display = "피해 없음" if label == "피해무" else label + " 피해"
-            dmg_html += (
-                f"<p style='margin:6px 0;'>"
-                f"💸 <b>{display}</b>: "
-                f"<b style='color:#ff2e9a;'>{ratio}%</b></p>"
-            )
-        st.markdown(
-            f"<div class='glass-card'>"
-            f"<h3>💰 예상 피해 규모 ({target_crime} 기준)</h3>"
-            f"<p style='color:#a0a0d0; font-size:0.9em;'>"
-            f"※ 실제 {target_crime} 피해 금액 분포 통계</p>"
-            f"{dmg_html}"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-
-    # ══════════════════════════════════════
-    # 👤 예측 4: 성별 피해 통계
-    # ══════════════════════════════════════
-    crime_list = ["전체범죄", "살인범죄", "강도범죄"]
-    gender_html = ""
-    for ct in crime_list:
-        gr = get_gender_ratio(trend_df, ct, gender)
-        if gr is not None:
-            gender_html += (
-                f"<p style='margin:6px 0;'>"
-                f"• <b>{ct}</b> 피해자 중 <b>{gender}</b> 비율: "
-                f"<b style='color:#00f0ff;'>{gr}%</b></p>"
-            )
-    st.markdown(
-        f"<div class='glass-card'>"
-        f"<h3>👤 {gender} 피해자 통계 (2024년)</h3>"
-        f"{gender_html}"
+        f"<p>⚠️ 전체 통계상 가장 위험한 시간: "
+        f"<b style='color:#ff2e5e;'>{most_dangerous[0]}</b> "
+        f"(전체 범죄의 {most_dangerous[1]}%)</p>"
         f"</div>",
         unsafe_allow_html=True
     )
@@ -265,14 +266,14 @@ if st.button("⚡ 확률 분석 시작") and data_loaded:
     # 💡 맞춤 안전 팁
     # ══════════════════════════════════════
     tips = []
-    if top1_crime:
-        tips.append(f"당신의 활동시간엔 '{top1_crime}' 위험이 가장 높아요. 특히 주의하세요.")
+    if ranked:
+        tips.append(f"당신은 '{ranked[0][0]}'에 가장 취약합니다. 특별히 주의하세요.")
     if "밤늦게" in active_time or "새벽" in active_time:
         tips.append("심야·새벽은 위험 시간대입니다. 밝고 사람 많은 길로 다니세요.")
     if sns_open in ["많이 공개", "전체 공개"]:
         tips.append("SNS 공개 범위를 줄이면 표적이 될 확률이 낮아져요.")
     if careless >= 6:
-        tips.append("귀중품 관리에 더 신경 쓰세요. 절도 피해가 가장 흔합니다.")
+        tips.append("귀중품 관리에 더 신경 쓰세요.")
     if risky_area:
         tips.append("위험 지역 방문을 줄이세요.")
     if not self_defense:
