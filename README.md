@@ -57,7 +57,7 @@
 * 피해 결과 데이터
 * 대표 피해자 성별·연령 데이터
 
-공공데이터를 활용하여 범죄 발생 특성과 피해 유형을 분석하였다.
+공공데이터(https://www.police.go.kr/user/bbs/BD_selectBbsList.do?q_bbsCode=1115&estnColumn2=%EB%85%84%EB%8F%84)를 활용하여 범죄 발생 특성과 피해 유형을 분석하였다.
 
 ---
 
